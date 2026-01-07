@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Sign Recognition - Alert System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-traffic-light"></i> Traffic Sign Alert System</h1>
+            <p>Upload traffic sign images for instant safety guidance and multi-language alerts</p>
+        </div>
+        
+        <!-- Language Selector -->
+        <div class="language-selector">
+            <label for="languageSelect"><i class="fas fa-globe"></i> Alert Language:</label>
+            <select id="languageSelect">
+                <option value="en">English</option>
+                <option value="kn">ಕನ್ನಡ (Kannada)</option>
+                <option value="es">Español (Spanish)</option>
+                <option value="fr">Français (French)</option>
+                <option value="sa">संस्कृत (Sanskrit)</option>
+                <option value="pa">ਪੰਜਾਬੀ (Punjabi)</option>
+                <option value="hi">हिन्दी (Hindi)</option>
+                <option value="ja">日本語 (Japanese)</option>
+                <option value="zh">中文 (Chinese)</option>
+                <option value="ta">தமிழ் (Tamil)</option>
+                <option value="ar">العربية (Arabic)</option>
+            </select>
+        </div>
+        
+        <div class="upload-section">
+            <input type="file" id="fileInput" accept="image/*" hidden>
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-content">
+                    <span class="upload-icon"><i class="fas fa-cloud-upload-alt"></i></span>
+                    <p>Drag & Drop or Click to Upload</p>
+                    <p class="upload-subtext">Supports JPG, PNG, JPEG formats • Max 16MB</p>
+                </div>
+            </div>
+            <div class="button-group">
+                <button id="predictBtn" class="btn predict-btn" disabled>
+                    <i class="fas fa-search"></i> Analyze Sign
+                </button>
+                <button id="clearBtn" class="btn clear-btn">
+                    <i class="fas fa-trash"></i> Clear History
+                </button>
+            </div>
+        </div>
+
+        <!-- Alert Notification -->
+        <div id="alertNotification" class="alert-notification hidden">
+            <div class="alert-icon"><i class="fas fa-exclamation-triangle"></i></div>
+            <div class="alert-content">
+                <h3 id="alertTitle">Safety Alert</h3>
+                <p id="alertMessage"></p>
+            </div>
+            <button id="closeAlert" class="close-alert">×</button>
+        </div>
+
+        <div id="results" class="results hidden">
+            <div class="result-card">
+                <div class="result-header">
+                    <h2><i class="fas fa-chart-bar"></i> Detection Results</h2>
+                    <button id="newPredictionBtn" class="btn new-btn">
+                        <i class="fas fa-plus"></i> New Analysis
+                    </button>
+                </div>
+                
+                <div class="result-content">
+                    <div class="image-preview">
+                        <img id="previewImage" src="" alt="Detected traffic sign">
+                        <div class="confidence-badge" id="confidenceBadge">
+                            <span id="confidenceValue"></span>% confident
+                        </div>
+                    </div>
+                    
+                    <div class="prediction-info">
+                        <h3 id="predictionText"></h3>
+                        
+                        <div class="guidance-box">
+                            <h4><i class="fas fa-exclamation-circle"></i> Safety Guidance:</h4>
+                            <p id="guidanceText"></p>
+                        </div>
+                        
+                        <div class="audio-controls">
+                            <button id="replayAlertBtn" class="btn replay-btn">
+                                <i class="fas fa-volume-up"></i> Replay Alert
+                            </button>
+                            <audio id="audioPlayer" controls class="audio-player" autoplay></audio>
+                        </div>
+                        
+                        <div class="image-actions">
+                            <button id="deleteImageBtn" class="btn delete-btn">
+                                <i class="fas fa-trash"></i> Delete This
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="top-predictions">
+                    <h4><i class="fas fa-list-alt"></i> Alternative Possibilities:</h4>
+                    <div id="topPredictionsList" class="predictions-grid"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="saved-predictions">
+            <h3><i class="fas fa-history"></i> Detection History</h3>
+            <div id="savedImagesList" class="saved-images-grid">
+                {% for image in saved_images %}
+                <div class="saved-image-card">
+                    <img src="{{ image.path }}" alt="Saved detection">
+                    <div class="saved-image-info">
+                        <p>{{ image.filename.split('_')[0] }}...</p>
+                        <small>{{ image.upload_time }}</small>
+                        <button class="view-btn" onclick="viewSavedImage('{{ image.path }}')">
+                            <i class="fas fa-eye"></i> View
+                        </button>
+                        <button class="delete-saved-btn" onclick="deleteSavedImage('{{ image.filename }}')">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <p>Analyzing traffic sign...</p>
+        </div>
+
+        <div id="error" class="error hidden">
+            <p><i class="fas fa-exclamation-circle"></i> <span id="errorMessage"></span></p>
+        </div>
+    </div>
+
+    <script>
+        let currentImageData = null;
+        let audioPlayer = null;
+        let currentLanguage = 'en';
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileInput = document.getElementById('fileInput');
+            const uploadArea = document.getElementById('uploadArea');
+            const predictBtn = document.getElementById('predictBtn');
+            const clearBtn = document.getElementById('clearBtn');
+            const newPredictionBtn = document.getElementById('newPredictionBtn');
+            const deleteImageBtn = document.getElementById('deleteImageBtn');
+            const replayAlertBtn = document.getElementById('replayAlertBtn');
+            const alertNotification = document.getElementById('alertNotification');
+            const alertTitle = document.getElementById('alertTitle');
+            const alertMessage = document.getElementById('alertMessage');
+            const closeAlert = document.getElementById('closeAlert');
+            const results = document.getElementById('results');
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const previewImage = document.getElementById('previewImage');
+            const predictionText = document.getElementById('predictionText');
+            const guidanceText = document.getElementById('guidanceText');
+            const confidenceBadge = document.getElementById('confidenceBadge');
+            const confidenceValue = document.getElementById('confidenceValue');
+            const topPredictionsList = document.getElementById('topPredictionsList');
+            audioPlayer = document.getElementById('audioPlayer');
+            const errorMessage = document.getElementById('errorMessage');
+            const languageSelect = document.getElementById('languageSelect');
+
+            // Event listeners
+            uploadArea.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', handleFileSelect);
+            predictBtn.addEventListener('click', predictImage);
+            clearBtn.addEventListener('click', clearAllPredictions);
+            newPredictionBtn.addEventListener('click', resetInterface);
+            deleteImageBtn.addEventListener('click', deleteCurrentImage);
+            replayAlertBtn.addEventListener('click', replayAlert);
+            closeAlert.addEventListener('click', hideAlert);
+            languageSelect.addEventListener('change', function() {
+                currentLanguage = this.value;
+                // Save to localStorage for persistence
+                localStorage.setItem('preferredLanguage', currentLanguage);
+            });
+
+            // Load saved language preference if exists
+            const savedLanguage = localStorage.getItem('preferredLanguage');
+            if (savedLanguage) {
+                currentLanguage = savedLanguage;
+                languageSelect.value = currentLanguage;
+            }
+
+            // Drag and drop
+            setupDragAndDrop();
+
+            function handleFileSelect() {
+                if (fileInput.files.length) {
+                    const file = fileInput.files[0];
+                    // Check file size (max 16MB)
+                    if (file.size > 16 * 1024 * 1024) {
+                        showError('File size exceeds 16MB limit');
+                        return;
+                    }
+                    
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(e) {
+                        previewImage.src = e.target.result;
+                        predictBtn.disabled = false;
+                        hideError();
+                    };
+                    
+                    reader.readAsDataURL(file);
+                }
+            }
+
+            async function predictImage() {
+                const file = fileInput.files[0];
+                if (!file) return;
+
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('language', currentLanguage);
+
+                showLoading();
+                hideResults();
+                hideError();
+                hideAlert();
+
+                try {
+                    const response = await fetch('/predict', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        displayResults(data);
+                        showAlert(data.predicted_class, data.alert_message);
+                        playAudioAlert(data.audio_data);
+                    } else {
+                        showError(data.error || 'Analysis failed');
+                    }
+                } catch (error) {
+                    showError('Network error: ' + error.message);
+                } finally {
+                    hideLoading();
+                }
+            }
+
+            function showAlert(title, message) {
+                alertTitle.textContent = title;
+                alertMessage.textContent = message;
+                alertNotification.classList.remove('hidden');
+                
+                // Auto-hide alert after 10 seconds
+                setTimeout(hideAlert, 10000);
+            }
+
+            function hideAlert() {
+                alertNotification.classList.add('hidden');
+            }
+
+            function playAudioAlert(audioData) {
+                if (audioData && audioPlayer) {
+                    audioPlayer.src = 'data:audio/mp3;base64,' + audioData;
+                    audioPlayer.play().catch(e => {
+                        console.log('Auto-play prevented:', e);
+                    });
+                }
+            }
+
+            function replayAlert() {
+                if (currentImageData && currentImageData.audio_data && audioPlayer) {
+                    audioPlayer.src = 'data:audio/mp3;base64,' + currentImageData.audio_data;
+                    audioPlayer.play();
+                }
+            }
+
+            function setupDragAndDrop() {
+                uploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.add('dragover');
+                });
+
+                uploadArea.addEventListener('dragleave', () => {
+                    uploadArea.classList.remove('dragover');
+                });
+
+                uploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.remove('dragover');
+                    if (e.dataTransfer.files.length) {
+                        fileInput.files = e.dataTransfer.files;
+                        handleFileSelect();
+                    }
+                });
+            }
+
+            async function clearAllPredictions() {
+                if (confirm('Are you sure you want to clear all detection history?')) {
+                    try {
+                        const response = await fetch('/clear', {
+                            method: 'POST'
+                        });
+                        
+                        if (response.ok) {
+                            alert('All history cleared successfully');
+                            location.reload();
+                        } else {
+                            showError('Failed to clear history');
+                        }
+                    } catch (error) {
+                        showError('Network error: ' + error.message);
+                    }
+                }
+            }
+
+            function resetInterface() {
+                fileInput.value = '';
+                predictBtn.disabled = true;
+                previewImage.src = '';
+                results.classList.add('hidden');
+                uploadArea.classList.remove('hidden');
+                currentImageData = null;
+                hideAlert();
+            }
+
+            function displayResults(data) {
+                currentImageData = data;
+                
+                predictionText.textContent = data.predicted_class;
+                guidanceText.textContent = data.guidance;
+                confidenceValue.textContent = (data.confidence * 100).toFixed(1);
+                confidenceBadge.style.display = 'block';
+                
+                // Display top predictions
+                topPredictionsList.innerHTML = '';
+                data.top_predictions.forEach(pred => {
+                    const predictionItem = document.createElement('div');
+                    predictionItem.className = 'prediction-item';
+                    predictionItem.innerHTML = `
+                        <strong>${pred.class}</strong>
+                        <span>${(pred.confidence * 100).toFixed(1)}%</span>
+                        <small>${pred.guidance}</small>
+                    `;
+                    topPredictionsList.appendChild(predictionItem);
+                });
+
+                previewImage.src = data.image_url;
+                results.classList.remove('hidden');
+            }
+
+            async function deleteCurrentImage() {
+                if (currentImageData && confirm('Delete this detection?')) {
+                    try {
+                        const response = await fetch(`/delete_image/${currentImageData.image_filename}`, {
+                            method: 'DELETE'
+                        });
+                        
+                        if (response.ok) {
+                            alert('Detection deleted successfully');
+                            resetInterface();
+                            location.reload();
+                        } else {
+                            showError('Failed to delete detection');
+                        }
+                    } catch (error) {
+                        showError('Network error: ' + error.message);
+                    }
+                }
+            }
+
+            function showLoading() {
+                loading.classList.remove('hidden');
+            }
+
+            function hideLoading() {
+                loading.classList.add('hidden');
+            }
+
+            function showError(message) {
+                errorMessage.textContent = message;
+                error.classList.remove('hidden');
+            }
+
+            function hideError() {
+                error.classList.add('hidden');
+            }
+
+            function hideResults() {
+                results.classList.add('hidden');
+            }
+        });
+
+        async function deleteSavedImage(filename) {
+            if (confirm('Delete this saved detection?')) {
+                try {
+                    const response = await fetch(`/delete_image/${filename}`, {
+                        method: 'DELETE'
+                    });
+                    
+                    if (response.ok) {
+                        alert('Detection deleted successfully');
+                        location.reload();
+                    } else {
+                        alert('Failed to delete detection');
+                    }
+                } catch (error) {
+                    alert('Network error: ' + error.message);
+                }
+            }
+        }
+
+        function viewSavedImage(imagePath) {
+            window.open(imagePath, '_blank');
+        }
+    </script>
+</body>
+</html>
